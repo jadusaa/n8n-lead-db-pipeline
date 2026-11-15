@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>lead-db-pipeline demo</title>
+<style>
+ body{margin:0;background:#0f172a;color:#e2e8f0;font-family:'SF Mono',Menlo,monospace;
+      display:flex;flex-direction:column;height:100vh;overflow:hidden}
+ header{padding:18px 28px;background:#1e293b;border-bottom:2px solid #334155}
+ header h1{margin:0;font-size:22px;color:#7dd3fc}
+ header p{margin:4px 0 0;font-size:13px;color:#94a3b8}
+ .stage{flex:1;display:flex;flex-direction:column;padding:22px 28px;gap:14px;justify-content:center}
+ .cmd{background:#0b1220;border:1px solid #334155;border-radius:8px;padding:14px 18px;font-size:17px;color:#a5f3fc}
+ .cmd .p{color:#64748b}
+ .out{background:#0b1220;border:1px solid #334155;border-radius:8px;padding:14px 18px;font-size:17px;white-space:pre-wrap;min-height:52px}
+ .out.ok{border-color:#14532d;color:#86efac}
+ .out.dup{border-color:#365314;color:#d9f99d}
+ .out.err{border-color:#7f1d1d;color:#fca5a5}
+ .cap{font-size:20px;color:#fbbf24;font-weight:600;min-height:26px}
+ .db{font-size:15px;color:#cbd5e1;white-space:pre;background:#0b1220;border-radius:8px;padding:12px 18px;border:1px solid #334155}
+ .hidden{display:none}
+ footer{padding:12px 28px;background:#1e293b;font-size:14px;color:#94a3b8}
+ footer a{color:#7dd3fc}
+</style></head>
+<body>
+<header><h1>n8n Lead DB Pipeline — working journey</h1>
+<p>webhook → validation → parameterized SQLite store → receipt · synthetic data</p></header>
+<div class="stage">
+ <div class="cap" id="cap">1 · A valid lead arrives…</div>
+ <div class="cmd">POST /webhook/lead&nbsp;&nbsp;<span class="p">{"name":"Dana Whitfield","email":"dana@brightloop.io","company":"Brightloop","source":"contact-form"}</span></div>
+ <div class="out ok" id="o1">…</div>
+ <div class="db hidden" id="db1"></div>
+ <div class="cap hidden" id="cap2">2 · The same lead arrives again…</div>
+ <div class="cmd hidden" id="c2">POST /webhook/lead&nbsp;&nbsp;<span class="p">{"name":"Dana Whitfield","email":"dana@brightloop.io","company":"Brightloop","source":"contact-form"}</span></div>
+ <div class="out dup hidden" id="o2">…</div>
+ <div class="db hidden" id="db2"></div>
+ <div class="cap hidden" id="cap3">3 · An invalid email arrives…</div>
+ <div class="cmd hidden" id="c3">POST /webhook/lead&nbsp;&nbsp;<span class="p">{"name":"X","email":"not-an-email"}</span></div>
+ <div class="out err hidden" id="o3">…</div>
+ <div class="cap hidden" id="cap4">4 · The boring question: did we save it? — /status</div>
+ <div class="out hidden" id="o4">…</div>
+</div>
+<footer>Source &amp; workflow: <b>github.com/jadusaa/n8n-lead-db-pipeline</b> · portfolio: jadusaa.github.io · store API runs locally (127.0.0.1) with synthetic data</footer>
+<script>
+async function post(body){const r=await fetch('http://127.0.0.1:8765/store',{method:'POST',
+  headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:r.status,json:await r.json()};}
+async function run(){
+  await new Promise(r=>setTimeout(r,3000));
+  // scene 1
+  const r1=await post({email:'dana@brightloop.io',name:'Dana Whitfield',company:'Brightloop',source:'contact-form'});
+  document.getElementById('o1').textContent=JSON.stringify(r1.json);
+  // db read via status
+  const s1=await fetch('http://127.0.0.1:8765/status').then(r=>r.json());
+  const row1=s1.recent.find(x=>x.email==='dana@brightloop.io');
+  const d1=document.getElementById('db1');
+  d1.textContent='leads table →  '+JSON.stringify(row1); d1.classList.remove('hidden');
+  // scene 2 (wait)
+  await new Promise(r=>setTimeout(r,9000));
+  document.getElementById('cap2').classList.remove('hidden');
+  document.getElementById('c2').classList.remove('hidden');
+  const o2=document.getElementById('o2'); o2.classList.remove('hidden'); o2.textContent='sending…';
+  const r2=await post({email:'dana@brightloop.io',name:'Dana Whitfield',company:'Brightloop',source:'contact-form'});
+  o2.textContent=JSON.stringify(r2.json);
+  const s2=await fetch('http://127.0.0.1:8765/status').then(r=>r.json());
+  const row2=s2.recent.find(x=>x.email==='dana@brightloop.io');
+  const d2=document.getElementById('db2');
+  d2.textContent='leads table →  '+JSON.stringify(row2)+'   (still ONE row, duplicate_count='+row2.duplicate_count+')';
+  d2.classList.remove('hidden');
+  // scene 3
+  await new Promise(r=>setTimeout(r,9000));
+  document.getElementById('cap3').classList.remove('hidden');
+  document.getElementById('c3').classList.remove('hidden');
+  const o3=document.getElementById('o3'); o3.classList.remove('hidden'); o3.textContent='sending…';
+  const r3=await post({email:'not-an-email',name:'X'});
+  o3.textContent=JSON.stringify(r3.json);
+  // scene 4
+  await new Promise(r=>setTimeout(r,9000));
+  document.getElementById('cap4').classList.remove('hidden');
+  document.getElementById('cap4').scrollIntoView({behavior:'smooth',block:'start'});
+  const o4=document.getElementById('o4'); o4.classList.remove('hidden');
+  const s4=await fetch('http://127.0.0.1:8765/status').then(r=>r.json());
+  o4.textContent=JSON.stringify({counts:s4.counts,total_leads:s4.total_leads,recent_count:s4.recent.length});
+}
+run();
+</script>
+</body></html>
