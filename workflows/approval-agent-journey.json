@@ -1,0 +1,165 @@
+{
+  "name": "approval-agent-journey",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent-task",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Task Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "webhookId": "agent-task-2"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst b = $json.body || {};\nconst task = (b.task || '').toString().trim();\nif (!task) throw new Error('VALIDATION: missing task');\nreturn [{ json: { task } }];\n"
+      },
+      "name": "Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.thehive.ai/api/v3/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({model: 'zai-org/glm-5.3-flash', messages: [{role: 'system', content: 'You are an automation assistant. Given a task, propose ONE specific, safe, executable action for a demo system that only writes to a sample database. Reply ONLY with JSON: {\"proposed_action\": \"...\", \"reasoning\": \"...\"}. The action must be small, concrete and reversible.'},{role: 'user', content: $json.task}], max_tokens: 800, temperature: 0.2}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "name": "LLM Propose",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        580,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "hive-api-classifier",
+          "name": "Hive API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst r = $json;\nlet content = null;\ntry { content = r.choices[0].message.content; } catch(e) { content = null; }\nif (!content) throw new Error('LLM_RAW:' + JSON.stringify(r).slice(0, 500));\n// tolerant JSON extraction: first { to last }\nconst a = content.indexOf('{');\nconst bIdx = content.lastIndexOf('}');\nif (a < 0 || bIdx <= a) throw new Error('LLM no JSON: ' + content.slice(0, 300));\nlet parsed;\ntry { parsed = JSON.parse(content.slice(a, bIdx + 1)); } catch(e) {\n  throw new Error('LLM JSON invalid: ' + content.slice(0, 300));\n}\nif (!parsed.proposed_action || !parsed.reasoning) throw new Error('missing fields: ' + content.slice(0, 300));\nreturn [{ json: { task: $('Validate').item.json.task, proposed_action: String(parsed.proposed_action), reasoning: String(parsed.reasoning) } }];\n"
+      },
+      "name": "Parse Proposal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8765/propose",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({task: $json.task, proposed_action: $json.proposed_action, reasoning: $json.reasoning}) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "name": "Store Proposal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        940,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"ok\": true, \"proposal_id\": $json.id, \"token\": $json.token, \"proposed_action\": $json.proposed_action, \"reasoning\": $json.reasoning, \"status\": $json.status, \"approve_url\": \"http://127.0.0.1:8765/approve?token=\" + $json.token } }}",
+        "options": {}
+      },
+      "name": "Respond Pending",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Task Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate": {
+      "main": [
+        [
+          {
+            "node": "LLM Propose",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Propose": {
+      "main": [
+        [
+          {
+            "node": "Parse Proposal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Proposal": {
+      "main": [
+        [
+          {
+            "node": "Store Proposal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Proposal": {
+      "main": [
+        [
+          {
+            "node": "Respond Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "active": false,
+  "versionId": "b1b2c3d4-e5f6-4789-a012-3456789abcde"
+}

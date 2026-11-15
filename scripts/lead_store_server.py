@@ -212,19 +212,27 @@ class Handler(BaseHTTPRequestHandler):
         if status != "approved":
             conn.close()
             return self._json(409, {"ok": False, "error": f"unexpected status {status}"})
-        # EXECUTE the action against sample data (demo): record an "executed action"
-        conn2 = db()
-        cur2 = conn2.execute(
+        # EXECUTE the action — atomically claim it: a conditional UPDATE inside
+        # an immediate transaction. Exactly one concurrent caller can flip
+        # status approved→executed; the rest see 0 rows changed and are refused.
+        conn.execute("BEGIN IMMEDIATE")
+        cur = conn.execute(
+            "UPDATE proposals SET status='executed', executed_at=?, "
+            "execution_result=COALESCE(execution_result, execution_result) WHERE id=? AND status='approved'",
+            (now(), pid))
+        if cur.rowcount != 1:
+            conn.rollback(); conn.close()
+            return self._json(409, {"ok": False, "error": "proposal is no longer approved (claimed by another request)"})
+        ea_cur = conn.execute(
             "INSERT INTO executed_actions (token, action, executed_at) VALUES (?, ?, ?)",
             (token, proposed_action, now()))
-        conn2.commit()
-        ea_id = cur2.lastrowid
+        ea_id = ea_cur.lastrowid
         ts = now()
         result = {"executed_action_id": ea_id, "action": proposed_action,
                   "executed_at": ts, "scope": "sample-data demo table"}
-        conn2.execute("UPDATE proposals SET status='executed', executed_at=?, execution_result=? WHERE id=?",
-                      (ts, json.dumps(result), pid))
-        conn2.commit(); conn2.close(); conn.close()
+        conn.execute("UPDATE proposals SET execution_result=? WHERE id=?",
+                     (json.dumps(result), pid))
+        conn.commit(); conn.close()
         return self._json(200, {"ok": True, "executed": result})
 
     def do_POST(self):
