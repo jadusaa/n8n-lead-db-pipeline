@@ -1,0 +1,5 @@
+db/*.db
+db/_pending.sql
+evidence/store_server.log
+node_modules/
+__pycache__/
