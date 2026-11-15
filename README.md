@@ -1,4 +1,4 @@
-# n8n Lead DB Pipeline — every lead stored exactly once, with a status you can check
+# n8n Lead DB Pipeline — deduplicates leads by email, preserves records across restarts
 
 **Problem it solves:** leads arrive by webhook as messy payloads. Teams re-type
 them into spreadsheets, duplicates slip in, failed validations vanish silently,
@@ -8,12 +8,17 @@ and nobody can answer "did we actually save that lead?"
 → immediate JSON receipt, plus a status endpoint that shows counts, recency and
 duplicates at any time.
 
+**Availability:** source + workflow are public in this repository. The store API
+and `/status` endpoint run **locally only** (127.0.0.1) and contain synthetic
+sample data — they are not exposed to the public internet. The screen demo
+below shows the working local instance.
+
 ## What it demonstrates (end-to-end, all executed)
 
 | Acceptance check | Evidence |
 |---|---|
 | Valid lead persists | `{"ok":true,"stored":{"id":8,"outcome":"created"}}` |
-| Duplicate never becomes a second row | same email → `outcome:"duplicate"`, same id |
+| Duplicate by email never becomes a second row | same email → `outcome:"duplicate"`, same id (sequential submissions tested) |
 | Invalid email rejected cleanly | `{"ok":false,"error":"invalid email format"}` — no row written |
 | Malformed payload | rejected at webhook (422 by body parser), pipeline unaffected |
 | SQL-injection payload stored as inert data | `Robert'); DROP TABLE leads;--` saved as a name; table intact |
@@ -63,3 +68,12 @@ explicit JSON responses (never hanging requests).
 - Schema: `db/schema.sql`
 
 Contact: jawadsabir120@gmail.com · https://jadusaa.github.io/
+
+## Known limits on the claim (stated before anyone asks)
+
+- Tested with **sequential** submissions. Concurrent same-email submissions and a
+  lost-response-then-retry cycle are not yet demonstrated; until then the honest
+  claim is "deduplicates by email and preserves records across restarts," not
+  "exactly once under concurrency."
+- The `/status` endpoint is bound to 127.0.0.1 — deliberately not public. If it
+  is ever exposed, it must get auth + real data hygiene first.
