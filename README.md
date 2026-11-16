@@ -90,8 +90,10 @@ POST /webhook/agent-task  (n8n → Hive LLM proposes action + reasoning)
 - Interruption *during* execution (crash between claim and effect) is not yet
   demonstrated; the atomic claim makes double-execution impossible through the
   API, but a mid-execution crash-rollback story is out of scope.
-- The approval UI is a local page + API calls; there is no multi-user audit
-  trail, and approvals are bound to the proposal hash, not to an identity.
+- This is a **local approval-workflow demonstration**, not protection against
+  unauthorized approvers: approvals are bound to the proposal hash, not to an
+  authenticated identity. Anyone with API access could approve — the gate
+  ensures the approved content is what executes, and only once.
 - The LLM proposes; it never executes. Execution is the store's, and only after
   a hash-validated human decision.
 
