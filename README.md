@@ -61,9 +61,44 @@ explicit JSON responses (never hanging requests).
 - No auth/roles, no enrichment APIs, no email sending — scoped out deliberately.
 - Validation covers email presence/format; field-level rules are client-specific.
 
+## Week 2 extension: approval-gated actions (AI proposes → human approves → one execution)
+
+The same store now supports tasks that require human sign-off before execution:
+
+```
+POST /webhook/agent-task  (n8n → Hive LLM proposes action + reasoning)
+  → POST /propose         (store records proposal + content hash, status=pending)
+  → human approves        (POST /decide with the hash they saw)
+  → POST /execute         (only from approved; executed once; result recorded)
+```
+
+**What is directly tested (executed evidence, not asserted):**
+
+| Test | Result |
+|---|---|
+| Nothing executes without approval | execute before approval → `not approved yet` |
+| Editing the proposed action invalidates approval | approve with stale hash → `hash mismatch`; correct-hash approve then works |
+| Repeated approval clicks don't repeat the action | second approve → `already approved`; second execute → `already executed at <timestamp>` |
+| Approval state survives a restart | server killed + relaunched → executed stays executed, pending list intact |
+| Rejected proposals cannot execute | rejected → `rejected proposals cannot execute` |
+| Expired requests cannot execute | pending older than 24h swept to `expired` → execute refused |
+| Simultaneous executions | 4 concurrent executes on one approval → exactly 1 succeeded, 3 refused (`claimed by another request` / `already executed`); exactly one `executed_actions` row |
+| Full journey | AI proposed a specific action → human approved (hash-validated) → executed action matches the approved action exactly → recorded in proposal + `executed_actions` |
+
+**Known limits on the week-2 claim (stated before anyone asks):**
+
+- Interruption *during* execution (crash between claim and effect) is not yet
+  demonstrated; the atomic claim makes double-execution impossible through the
+  API, but a mid-execution crash-rollback story is out of scope.
+- The approval UI is a local page + API calls; there is no multi-user audit
+  trail, and approvals are bound to the proposal hash, not to an identity.
+- The LLM proposes; it never executes. Execution is the store's, and only after
+  a hash-validated human decision.
+
 ## Source
 
 - Workflow export: `workflows/lead-db-pipeline.json`
+- Approval journey: `workflows/approval-agent-journey.json`
 - Store API: `scripts/lead_store_server.py`
 - Schema: `db/schema.sql`
 
